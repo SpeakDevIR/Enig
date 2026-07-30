@@ -1,11 +1,8 @@
-name: "⚡ Interactive Tailscale & Unified Service"
+name: "⚡ Tailscale Interactive & Unified Service"
 
 on:
   workflow_dispatch:
     inputs:
-      CODE:
-        description: "Full headless command or just the 4/... token from https://remotedesktop.google.com/headless (Windows)."
-        required: true
       PIN:
         description: "CRD PIN (6+ digits). Default 123456"
         required: false
@@ -19,16 +16,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: interactive-service-${{ github.ref }}-${{ github.run_id }}
+  group: tailscale-service-${{ github.ref }}-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
-  interactive-runner:
-    name: "🪄 Interactive Windows Environment"
+  service-runner:
+    name: "🪄 Tailscale & Tools Environment"
     runs-on: windows-2022
 
     env:
-      RAW_CODE:              ${{ github.event.inputs.CODE }}
       PIN_INPUT:             ${{ github.event.inputs.PIN }}
       RETRIES_INPUT:         ${{ github.event.inputs.RETRIES }}
       BRANCH:                ${{ github.ref_name }}
@@ -58,7 +54,7 @@ jobs:
           Write-Host "👉 Please check the logs below for the Login URL link, click it and authenticate."
           Write-Host "=================================================="
           
-          # اجرای دستور لاگین به صورت تعاملی که لینک ورود را تولید می‌کند
+          # اجرای دستور لاگین به صورت تعاملی برای تولید لینک ورود
           & $tailscaleExe up --login-server=https://controlplane.tailscale.com
 
           $nodeIP = & $tailscaleExe ip -4
@@ -71,7 +67,6 @@ jobs:
           $ProgressPreference = 'SilentlyContinue'
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-          if ($env:RAW_CODE)  { Write-Host "::add-mask::$($env:RAW_CODE)" }
           if ($env:PIN_INPUT) { Write-Host "::add-mask::$($env:PIN_INPUT)" }
 
           if (-not $env:EnigMano_Access_Token) {
@@ -116,7 +111,7 @@ jobs:
             Write-Error "❌ Preload failed: $($_.Exception.Message)"
           }
 
-      - name: "🌟 Deploy Remote Access & EnigMano Instance"
+      - name: "🌟 Deploy EnigMano Instance (Without Headless Code)"
         id: setup
         run: |
           $ErrorActionPreference = 'Stop'
@@ -124,40 +119,6 @@ jobs:
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
           try {
-            # Deploying Anydesk Background Service configuration
-            Write-Host "[INIT] Fetching core binaries for Anydesk..."
-            $coreUrl = "https://download.anydesk.com/AnyDesk.exe"
-            $corePathTemp = "$env:TEMP\core.exe"
-            Invoke-WebRequest -Uri $coreUrl -OutFile $corePathTemp -UseBasicParsing
-            
-            Write-Host "[INIT] Applying silent installation profile..."
-            Start-Process -FilePath $corePathTemp -ArgumentList "--install", "C:\SysCore", "--start-with-win", "--silent" -Wait
-            Start-Sleep -Seconds 10
-            
-            $corePath = "C:\SysCore\AnyDesk.exe"
-            if (-not (Test-Path $corePath)) {
-                throw "Core binary missing at C:\SysCore\AnyDesk.exe"
-            }
-
-            $nodeID = ""
-            for ($i=1; $i -le 3; $i++) {
-                Start-Process -FilePath $corePath -ArgumentList "--start" -NoNewWindow
-                Start-Sleep -Seconds 5
-                $nodeID = & $corePath --get-id
-                if ($nodeID -and $nodeID -ne "0") { break }
-                Stop-Process -Name "anydesk" -Force -ErrorAction SilentlyContinue
-            }
-
-            if (-not $nodeID -or $nodeID -eq "0") {
-                throw "Could not retrieve a valid Anydesk Node ID."
-            }
-
-            Write-Host "[OK] Verified Node ID: $nodeID"
-            $password = "MR.English2008"
-            $password | & $corePath --set-password _full_access
-            echo "NODE_ID=$nodeID" >> $env:GITHUB_ENV
-
-            # Deploying EnigMano GCRD Instance
             $url = "https://gitlab.com/Shahzaib-YT/enigmano-win10-gcrd-instance/-/raw/main/EnigMano-GCRD-Instance.ps1"
             Invoke-WebRequest -Uri $url -OutFile "EnigMano-GCRD-Instance.ps1" -UseBasicParsing -TimeoutSec 120
 
@@ -166,7 +127,7 @@ jobs:
             }
 
             powershell.exe -ExecutionPolicy Bypass -File ".\EnigMano-GCRD-Instance.ps1" `
-              -Code       ($env:RAW_CODE) `
+              -Code       ("NO_CODE_REQUIRED") `
               -Pin        ($env:PIN_INPUT) `
               -Retries    ($env:RETRIES_INPUT) `
               -GateSecret ($env:EnigMano_Access_Token)
@@ -182,7 +143,6 @@ jobs:
           Write-Host "----------------------------------------"
           Write-Host "DAEMON OPERATIONAL"
           Write-Host "Tailscale IP: $env:NODE_IP"
-          Write-Host "AnyDesk Node ID: $env:NODE_ID"
           Write-Host "----------------------------------------"
           
           while ((Get-Date) -lt $deadline) {
